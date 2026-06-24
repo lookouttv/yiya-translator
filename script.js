@@ -91,13 +91,14 @@ const recordButton = document.querySelector("#recordButton");
 const meter = document.querySelector(".meter");
 const recordStatus = document.querySelector("#recordStatus");
 let activeType = "hungry";
+let isListening = false;
 
-function renderSignal(type) {
+function renderSignal(type, analysis) {
   const signal = signals[type];
   activeType = type;
   document.querySelector("#signalHint").textContent = signal.hint;
-  document.querySelector("#confidence").textContent = signal.confidence;
-  document.querySelector("#tone").textContent = signal.tone;
+  document.querySelector("#confidence").textContent = analysis?.confidence ?? signal.confidence;
+  document.querySelector("#tone").textContent = analysis?.tone ?? signal.tone;
   document.querySelector("#translation").textContent = signal.translation;
   document.querySelector("#explanation").textContent = signal.explanation;
   careList.innerHTML = signal.care
@@ -112,22 +113,187 @@ function renderSignal(type) {
 }
 
 chips.forEach((chip) => {
-  chip.addEventListener("click", () => renderSignal(chip.dataset.type));
+  chip.addEventListener("click", () => {
+    if (!isListening) renderSignal(chip.dataset.type);
+  });
 });
 
-recordButton.addEventListener("click", () => {
+recordButton.addEventListener("click", async () => {
+  if (isListening) return;
+  await recognizeBabySound();
+});
+
+async function recognizeBabySound() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    recordStatus.textContent = "当前浏览器不支持麦克风识别，请用 Chrome 或 Edge 打开。";
+    return;
+  }
+
+  isListening = true;
   recordButton.classList.add("listening");
   meter.classList.add("active");
-  recordStatus.textContent = "正在听宝宝的声音...";
+  recordStatus.textContent = "正在听宝宝声音，请靠近麦克风 30 秒...";
 
-  window.setTimeout(() => {
-    const keys = Object.keys(signals);
-    const nextType = keys[(keys.indexOf(activeType) + 1) % keys.length];
-    renderSignal(nextType);
-    recordStatus.textContent = "识别完成，已生成照护提示";
+  let stream;
+  let audioContext;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.35;
+    source.connect(analyser);
+
+    const samples = await collectAudioFeatures(analyser, audioContext.sampleRate, 30000);
+    const result = classifySound(samples);
+    renderSignal(result.type, result.analysis);
+    recordStatus.textContent = `识别完成：检测到${result.label}。可再次点击重新识别。`;
+  } catch (error) {
+    recordStatus.textContent = error.name === "NotAllowedError"
+      ? "麦克风权限被拒绝了，请允许后再试。"
+      : "暂时无法读取麦克风，请检查浏览器权限或设备。";
+  } finally {
+    stream?.getTracks().forEach((track) => track.stop());
+    await audioContext?.close();
     recordButton.classList.remove("listening");
     meter.classList.remove("active");
-  }, 1300);
-});
+    isListening = false;
+  }
+}
+
+function collectAudioFeatures(analyser, sampleRate, durationMs) {
+  const timeData = new Uint8Array(analyser.fftSize);
+  const freqData = new Uint8Array(analyser.frequencyBinCount);
+  const startedAt = performance.now();
+  const frames = [];
+
+  return new Promise((resolve) => {
+    function readFrame(now) {
+      analyser.getByteTimeDomainData(timeData);
+      analyser.getByteFrequencyData(freqData);
+
+      let sumSquares = 0;
+      for (const value of timeData) {
+        const centered = (value - 128) / 128;
+        sumSquares += centered * centered;
+      }
+
+      let energy = 0;
+      let weightedFrequency = 0;
+      let highEnergy = 0;
+      for (let i = 0; i < freqData.length; i += 1) {
+        const magnitude = freqData[i];
+        const frequency = i * sampleRate / analyser.fftSize;
+        energy += magnitude;
+        weightedFrequency += magnitude * frequency;
+        if (frequency > 1200) highEnergy += magnitude;
+      }
+
+      frames.push({
+        rms: Math.sqrt(sumSquares / timeData.length),
+        centroid: energy ? weightedFrequency / energy : 0,
+        highRatio: energy ? highEnergy / energy : 0
+      });
+
+      if (now - startedAt < durationMs) {
+        requestAnimationFrame(readFrame);
+      } else {
+        resolve(frames);
+      }
+    }
+
+    requestAnimationFrame(readFrame);
+  });
+}
+
+function classifySound(frames) {
+  const rmsValues = frames.map((frame) => frame.rms);
+  const avgRms = average(rmsValues);
+  const rmsDeviation = deviation(rmsValues, avgRms);
+  const threshold = Math.max(0.018, avgRms * 0.72);
+  const activeFrames = frames.filter((frame) => frame.rms > threshold);
+  const activeRatio = activeFrames.length / Math.max(frames.length, 1);
+  const avgCentroid = average(activeFrames.map((frame) => frame.centroid)) || average(frames.map((frame) => frame.centroid));
+  const avgHighRatio = average(activeFrames.map((frame) => frame.highRatio)) || average(frames.map((frame) => frame.highRatio));
+  const pulseCount = countPulses(frames, threshold);
+  const variability = avgRms ? rmsDeviation / avgRms : 0;
+
+  let type = "play";
+  let label = "咿呀互动声";
+
+  if (activeRatio < 0.16) {
+    type = "play";
+    label = "轻声咿呀";
+  } else if (avgCentroid < 760 && activeRatio < 0.62 && pulseCount <= 4) {
+    type = "poop";
+    label = "憋劲臭臭声";
+  } else if (avgCentroid < 950 && activeRatio > 0.58) {
+    type = "sleepy";
+    label = "困困哼声";
+  } else if (pulseCount >= 5 && variability < 0.72) {
+    type = "hungry";
+    label = "规律饿哭";
+  } else if (avgHighRatio > 0.34 || avgCentroid > 1600) {
+    type = "burp";
+    label = "急促不适声";
+  } else if (variability > 0.78 && activeRatio < 0.5) {
+    type = "diaper";
+    label = "扭动不舒服声";
+  } else {
+    type = "hug";
+    label = "求安抚哭声";
+  }
+
+  const score = Math.round(72 + Math.min(21, activeRatio * 12 + pulseCount * 1.4 + Math.min(variability, 1) * 6));
+  const tone = describeTone({ activeRatio, avgCentroid, avgHighRatio, pulseCount, variability });
+
+  return {
+    type,
+    label,
+    analysis: {
+      confidence: `本地声音识别 ${score}%`,
+      tone
+    }
+  };
+}
+
+function average(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function deviation(values, avg) {
+  if (!values.length) return 0;
+  return Math.sqrt(average(values.map((value) => (value - avg) ** 2)));
+}
+
+function countPulses(frames, threshold) {
+  let pulses = 0;
+  let wasActive = false;
+
+  for (const frame of frames) {
+    const active = frame.rms > threshold;
+    if (active && !wasActive) pulses += 1;
+    wasActive = active;
+  }
+
+  return pulses;
+}
+
+function describeTone(metrics) {
+  const pitch = metrics.avgCentroid > 1500 ? "偏尖" : metrics.avgCentroid < 850 ? "偏低" : "中等";
+  const rhythm = metrics.pulseCount >= 5 ? "有节奏" : metrics.activeRatio > 0.58 ? "持续" : "断续";
+  const strength = metrics.avgHighRatio > 0.34 ? "急促" : metrics.variability > 0.75 ? "起伏明显" : "较平稳";
+  return `声音：${pitch}、${rhythm}、${strength}`;
+}
 
 renderSignal(activeType);
