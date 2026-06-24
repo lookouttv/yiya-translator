@@ -132,7 +132,7 @@ async function recognizeBabySound() {
   isListening = true;
   recordButton.classList.add("listening");
   meter.classList.add("active");
-  recordStatus.textContent = "正在听宝宝声音，请靠近麦克风 30 秒...";
+  recordStatus.textContent = "正在听宝宝声音，请靠近麦克风 5 秒...";
 
   let stream;
   let audioContext;
@@ -153,7 +153,7 @@ async function recognizeBabySound() {
     analyser.smoothingTimeConstant = 0.35;
     source.connect(analyser);
 
-    const samples = await collectAudioFeatures(analyser, audioContext.sampleRate, 30000);
+    const samples = await collectAudioFeatures(analyser, audioContext.sampleRate, 5000);
     const result = classifySound(samples);
     renderSignal(result.type, result.analysis);
     recordStatus.textContent = `识别完成：检测到${result.label}。可再次点击重新识别。`;
