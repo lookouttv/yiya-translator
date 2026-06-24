@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>咿呀翻译器</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <img class="hero-art" src="assets/baby-translator-hero.png" alt="温馨婴儿房里的可爱宝宝插画" />
+        <div class="hero-copy">
+          <p class="eyebrow">Baby Voice Studio</p>
+          <h1>咿呀翻译器</h1>
+          <p class="hero-text">把宝宝的哭声、咿呀声和小表情整理成大人听得懂的照护提示。</p>
+        </div>
+      </section>
+
+      <section class="translator" aria-label="婴儿语言翻译器">
+        <div class="control-panel">
+          <div class="baby-card">
+            <div class="baby-face" id="babyFace" aria-hidden="true">
+              <span class="hair"></span>
+              <span class="eye left"></span>
+              <span class="eye right"></span>
+              <span class="mouth"></span>
+              <span class="cheek left"></span>
+              <span class="cheek right"></span>
+            </div>
+            <div>
+              <h2>宝宝信号</h2>
+              <p id="signalHint">选择一种声音，看看它可能在表达什么。</p>
+            </div>
+          </div>
+
+          <div class="sound-grid" id="soundGrid">
+            <button class="sound-chip active" data-type="hungry">
+              <span>🍼</span>
+              饿饿哭
+            </button>
+            <button class="sound-chip" data-type="sleepy">
+              <span>🌙</span>
+              困困哼
+            </button>
+            <button class="sound-chip" data-type="diaper">
+              <span>🧷</span>
+              扭扭哭
+            </button>
+            <button class="sound-chip" data-type="hug">
+              <span>🤗</span>
+              求抱抱
+            </button>
+            <button class="sound-chip" data-type="burp">
+              <span>🫧</span>
+              嗝嗝急
+            </button>
+            <button class="sound-chip" data-type="play">
+              <span>🧸</span>
+              想玩啦
+            </button>
+          </div>
+
+          <div class="recorder">
+            <button class="record-button" id="recordButton" type="button" aria-label="开始模拟识别">
+              <span class="record-dot"></span>
+            </button>
+            <div class="meter" aria-hidden="true">
+              <span></span><span></span><span></span><span></span><span></span><span></span>
+            </div>
+            <p id="recordStatus">点击圆钮，模拟监听宝宝声音</p>
+          </div>
+        </div>
+
+        <div class="result-panel">
+          <div class="result-topline">
+            <span id="confidence">可信度 92%</span>
+            <span id="tone">声音：短促、有节奏</span>
+          </div>
+          <h2 id="translation">“我有点饿，想喝奶啦。”</h2>
+          <p id="explanation">这种哭声通常节奏比较规律，停顿后会继续寻找安抚，常见于进食时间前后。</p>
+
+          <div class="care-list" id="careList"></div>
+
+          <div class="note">
+            <strong>温馨提醒</strong>
+            <span>这是照护辅助演示，不能替代医生诊断；如果宝宝持续尖锐哭闹、发热、呼吸异常或精神差，请及时就医。</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="script.js"></script>
+  </body>
+</html>
